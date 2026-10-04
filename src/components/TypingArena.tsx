@@ -109,6 +109,10 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
   const [errorWordIndex, setErrorWordIndex] = useState(-1)
   const [revealed, setRevealed] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Separate hidden input ref for capturing mobile keyboard in normal (non-hide) mode
+  const mobileInputRef = useRef<HTMLInputElement>(null)
+  // Whether mobile keyboard is currently active (focus on mobileInputRef)
+  const [mobileKeyboardActive, setMobileKeyboardActive] = useState(false)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   // Strip leading/trailing punctuation and lowercase for comparison
@@ -433,6 +437,53 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown)
   }, [hidePhrase, handleSpeak, processKey])
 
+  // ── Mobile keyboard input handler (normal mode) ───────────────────────────
+  // The hidden input accumulates characters from the mobile keyboard.
+  // We pull out each new character, feed it to processKey(), then clear.
+  const mobileInputValueRef = useRef('')
+  const handleMobileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (hidePhrase || phraseJustFinished) return
+      soundEffects.unlock()
+      const newValue = e.target.value
+      const prev = mobileInputValueRef.current
+
+      if (newValue.length > prev.length) {
+        // Characters were added — process each new character
+        const added = newValue.slice(prev.length)
+        for (const ch of added) {
+          processKey(ch)
+        }
+      } else if (newValue.length < prev.length) {
+        // Backspace
+        processKey('Backspace')
+      }
+
+      // Always clear so the input is ready for the next character.
+      // We set value to '' via the ref trick below (the controlled value stays '').
+      mobileInputValueRef.current = ''
+      e.target.value = ''
+    },
+    [hidePhrase, phraseJustFinished, processKey]
+  )
+
+  const handleMobileKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      soundEffects.unlock()
+      if (e.key === 'Tab' || (e.ctrlKey && e.code === 'Space')) {
+        e.preventDefault()
+        handleSpeak()
+        return
+      }
+      // Let onChange handle the actual character; only intercept Backspace here
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        processKey('Backspace')
+      }
+    },
+    [handleSpeak, processKey]
+  )
+
   // ── Derived ───────────────────────────────────────────────────────────────
   // In normal mode, the effective cursor skips punctuation — find the real next char
   const effectiveIdx = (() => {
@@ -450,24 +501,45 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
     : hiddenInput.trim().split(/\s+/).filter(Boolean).length
 
   return (
-    <div className="w-full max-w-4xl mx-auto flex flex-col gap-6 select-none">
+    <div className="w-full max-w-4xl mx-auto flex flex-col gap-4 sm:gap-6 select-none">
+      {/* Hidden mobile keyboard capture input (normal mode) */}
+      {!hidePhrase && (
+        <input
+          ref={mobileInputRef}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          className="mobile-keyboard-capture"
+          aria-hidden="true"
+          tabIndex={-1}
+          onChange={handleMobileInputChange}
+          onKeyDown={handleMobileKeyDown}
+          onFocus={() => setMobileKeyboardActive(true)}
+          onBlur={() => setMobileKeyboardActive(false)}
+        />
+      )}
+
       {/* Audio Toolbar */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 shadow-xl shadow-purple-950/10">
-        <div className="flex items-center gap-3">
+      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 sm:p-5 shadow-xl shadow-purple-950/10">
+        {/* Row 1: Primary actions */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {/* Listen */}
           <button
             onClick={() => handleSpeak()}
             disabled={isSpeaking}
-            className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2.5 transition-all shadow-lg ${
+            className={`flex-1 sm:flex-none px-3 sm:px-5 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 sm:gap-2.5 transition-all shadow-lg min-w-0 ${
               isSpeaking
                 ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-purple-500/25 ring-2 ring-purple-400/50'
                 : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-600/25 hover:scale-[1.02]'
             }`}
           >
-            <Volume2 className={`w-5 h-5 ${isSpeaking ? 'animate-bounce' : ''}`} />
-            <span>{isSpeaking ? 'Speaking...' : 'Listen Phrase 🎧'}</span>
+            <Volume2 className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 ${isSpeaking ? 'animate-bounce' : ''}`} />
+            <span className="truncate">{isSpeaking ? 'Speaking...' : 'Listen 🎧'}</span>
             {isSpeaking && (
-              <span className="flex items-center gap-0.5 ml-1">
+              <span className="flex items-center gap-0.5 ml-1 flex-shrink-0">
                 <span className="w-1 h-3 bg-white rounded-full animate-pulse"></span>
                 <span className="w-1 h-5 bg-white rounded-full animate-pulse delay-75"></span>
                 <span className="w-1 h-2 bg-white rounded-full animate-pulse delay-150"></span>
@@ -480,17 +552,18 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
             onClick={() => handleSpeak(0.6)}
             disabled={isSpeaking}
             title="Listen extra slow (0.60x)"
-            className="px-3.5 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 text-slate-300 hover:text-amber-300 text-xs font-semibold border border-slate-700/70 transition-all flex items-center gap-1.5"
+            className="px-3 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 text-slate-300 hover:text-amber-300 text-xs font-semibold border border-slate-700/70 transition-all flex items-center gap-1.5 flex-shrink-0"
           >
             <Snail className="w-4 h-4 text-amber-400" />
             <span className="hidden sm:inline">Slow (0.6x)</span>
+            <span className="sm:hidden">0.6x</span>
           </button>
 
           {/* Hide / Show Phrase Toggle */}
           <button
             onClick={onToggleHidePhrase}
             title={hidePhrase ? 'Show phrase (exit dictation mode)' : 'Hide phrase (dictation mode)'}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+            className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 flex-shrink-0 ${
               hidePhrase
                 ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30'
                 : 'bg-slate-800/90 border-slate-700/70 text-slate-300 hover:text-amber-300 hover:bg-slate-700/90'
@@ -498,6 +571,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
           >
             {hidePhrase ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             <span className="hidden sm:inline">{hidePhrase ? 'Show Phrase' : 'Hide Phrase'}</span>
+            <span className="sm:hidden">{hidePhrase ? 'Show' : 'Hide'}</span>
           </button>
 
           {/* Touch / Click Word to Read Toggle */}
@@ -509,7 +583,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
                   ? 'Tap / Click word to read aloud is ON (click to disable)'
                   : 'Tap / Click word to read aloud is OFF (click to enable)'
               }
-              className={`px-3.5 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 flex-shrink-0 ${
                 voiceSettings.clickToSpeakWord
                   ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 hover:bg-purple-500/30 ring-1 ring-purple-500/30'
                   : 'bg-slate-800/90 border-slate-700/70 text-slate-400 hover:text-slate-200 hover:bg-slate-700/90'
@@ -535,7 +609,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
                   ? 'Arabic translation is ON (click to hide)'
                   : 'Arabic translation is OFF (click to show)'
               }
-              className={`px-3.5 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-2.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 flex-shrink-0 ${
                 voiceSettings.showArabicTranslation
                   ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 hover:bg-amber-500/30 ring-1 ring-amber-500/30'
                   : 'bg-slate-800/90 border-slate-700/70 text-slate-400 hover:text-slate-200 hover:bg-slate-700/90'
@@ -551,19 +625,56 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
               <span className="sm:hidden">AR: {voiceSettings.showArabicTranslation ? 'ON' : 'OFF'}</span>
             </button>
           )}
+
+          {/* Right side controls — pushed to end on desktop, new row on mobile */}
+          <div className="hidden sm:flex items-center gap-2.5 text-xs text-slate-400 ml-auto">
+            <span className="inline-flex items-center gap-1.5 bg-slate-800/70 border border-slate-700/60 px-3 py-1.5 rounded-xl text-slate-300 font-medium shadow-sm">
+              <Keyboard className="w-4 h-4 text-purple-400" />
+              <span className="hidden sm:inline">PC Keyboard • </span>
+              <span className="text-purple-300 font-semibold">Audio ON</span>
+            </span>
+
+            <span className="hidden md:inline-flex items-center gap-1 bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
+              Press <kbd className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-200 font-mono text-[10px]">Tab</kbd> to replay
+            </span>
+
+            <button
+              onClick={() => {
+                onRestartCurrentPhrase()
+                setTypedIndex(0)
+                setHasError(false)
+                setHiddenInput('')
+                setErrorWordIndex(-1)
+                setRevealed(false)
+                setPhraseJustFinished(false)
+              }}
+              title="Restart this sentence"
+              className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700/50"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Right side controls */}
-        <div className="flex items-center gap-2.5 text-xs text-slate-400">
-          <span className="inline-flex items-center gap-1.5 bg-slate-800/70 border border-slate-700/60 px-3 py-1.5 rounded-xl text-slate-300 font-medium shadow-sm">
-            <Keyboard className="w-4 h-4 text-purple-400" />
-            <span className="hidden sm:inline">PC Keyboard Active • </span>
-            <span className="text-purple-300 font-semibold">Mechanical Audio ON</span>
-          </span>
-
-          <span className="hidden md:inline-flex items-center gap-1 bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
-            Press <kbd className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-200 font-mono text-[10px]">Tab</kbd> to replay
-          </span>
+        {/* Row 2 (mobile only): restart + status */}
+        <div className="flex sm:hidden items-center justify-between mt-2.5 pt-2.5 border-t border-slate-800/60 gap-2">
+          {/* Tap to type button — mobile only, shown via CSS */}
+          {!hidePhrase && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault()
+                mobileInputRef.current?.focus()
+              }}
+              className={`tap-to-type-btn flex-1 items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
+                mobileKeyboardActive
+                  ? 'bg-indigo-600/30 border-indigo-500/60 text-indigo-300 ring-1 ring-indigo-400/40'
+                  : 'bg-slate-800/80 border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-700/80'
+              }`}
+            >
+              <Keyboard className="w-4 h-4 text-purple-400" />
+              <span>{mobileKeyboardActive ? '⌨️ Keyboard Active' : '⌨️ Tap to Type'}</span>
+            </button>
+          )}
 
           <button
             onClick={() => {
@@ -576,7 +687,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
               setPhraseJustFinished(false)
             }}
             title="Restart this sentence"
-            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700/50"
+            className="p-2 rounded-lg bg-slate-800/60 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors border border-slate-700/50 flex-shrink-0"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
@@ -585,7 +696,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
 
       {/* Main Stage */}
       <div
-        className={`relative bg-gradient-to-b from-slate-900/95 to-slate-950 border rounded-3xl p-6 sm:p-12 shadow-2xl transition-all duration-200 ${
+        className={`relative bg-gradient-to-b from-slate-900/95 to-slate-950 border rounded-3xl p-4 sm:p-12 shadow-2xl transition-all duration-200 ${
           hasError || errorWordIndex !== -1
             ? 'border-rose-500/70 shadow-rose-500/10 animate-wiggle'
             : phraseJustFinished
@@ -598,18 +709,18 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
         <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-800/80">
-          <div className="flex items-center gap-3">
-            <span className="text-xs uppercase font-extrabold tracking-wider text-purple-400 bg-purple-500/10 border border-purple-500/20 px-3.5 py-1.5 rounded-full">
+        <div className="flex items-center justify-between mb-4 sm:mb-8 pb-3 sm:pb-4 border-b border-slate-800/80">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <span className="text-xs uppercase font-extrabold tracking-wider text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-full">
               Phrase {currentPhraseIndex + 1} of {phrases.length}
             </span>
             {hidePhrase && !phraseJustFinished && (
-              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-full flex items-center gap-1.5">
-                <EyeOff className="w-3.5 h-3.5" /> Dictation Mode
+              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center gap-1.5">
+                <EyeOff className="w-3.5 h-3.5" /> Dictation
               </span>
             )}
             {phraseJustFinished && (
-              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-full flex items-center gap-1.5 animate-pop">
+              <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center gap-1.5 animate-pop">
                 <CheckCircle className="w-4 h-4" /> Completed!
               </span>
             )}
@@ -626,7 +737,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
         </div>
 
         {/* Progress Bar */}
-        <div className="w-full h-2 bg-slate-800/80 rounded-full mb-8 overflow-hidden">
+        <div className="w-full h-1.5 sm:h-2 bg-slate-800/80 rounded-full mb-4 sm:mb-8 overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-sky-400 transition-all duration-150 rounded-full shadow-lg shadow-purple-500/30"
             style={{
@@ -636,7 +747,6 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
             }}
           />
         </div>
-
 
         {/* ── HIDE MODE ── */}
         {hidePhrase ? (
@@ -810,28 +920,30 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
               <input
                 ref={inputRef}
                 type="text"
+                inputMode="text"
                 value={hiddenInput}
                 onChange={handleHiddenInputChange}
                 onKeyDown={handleHiddenKeyDown}
                 disabled={phraseJustFinished}
                 autoComplete="off"
                 autoCorrect="off"
-                autoCapitalize="off"
+                autoCapitalize="none"
                 spellCheck={false}
                 placeholder={
                   phraseJustFinished
                     ? '✓ Completed!'
                     : errorWordIndex !== -1
-                    ? 'Press Backspace to fix the wrong word…'
-                    : 'Type what you hear… press Space after each word or Enter to submit'
+                    ? '← Backspace to fix wrong word…'
+                    : 'Type what you hear… Space after each word'
                 }
-                className={`w-full px-5 py-4 rounded-2xl font-mono text-lg bg-slate-800/80 border-2 text-white placeholder-slate-600 outline-none transition-all ${
+                className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-2xl font-mono text-base sm:text-lg bg-slate-800/80 border-2 text-white placeholder-slate-600 outline-none transition-all ${
                   errorWordIndex !== -1
                     ? 'border-rose-500 shadow-rose-500/20 shadow-lg'
                     : phraseJustFinished
                     ? 'border-emerald-500 shadow-emerald-500/20 shadow-lg'
                     : 'border-slate-700 focus:border-indigo-500 focus:shadow-indigo-500/15 focus:shadow-lg'
                 }`}
+                style={{ fontSize: '16px' }}
               />
             </div>
 
@@ -852,8 +964,23 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
           </div>
         ) : (
           /* ── NORMAL MODE ── */
-          <div className="min-h-[140px] flex items-center justify-center p-4">
-            <div className="font-mono text-2xl sm:text-3xl md:text-4xl leading-relaxed tracking-wide text-center flex flex-wrap items-center justify-center gap-y-3">
+          <div
+            className="min-h-[120px] sm:min-h-[140px] flex flex-col items-center justify-center p-2 sm:p-4 gap-3"
+            onPointerDown={() => {
+              // On touch devices, tapping the phrase area focuses the hidden input
+              if (mobileInputRef.current && !phraseJustFinished) {
+                mobileInputRef.current.focus()
+              }
+            }}
+          >
+            {/* Mobile keyboard hint — shown only when keyboard is not active */}
+            {!mobileKeyboardActive && !phraseJustFinished && (
+              <div className="tap-to-type-btn items-center gap-1.5 text-xs text-slate-500 bg-slate-900/60 border border-slate-700/50 px-3 py-1.5 rounded-full pointer-events-none">
+                <Keyboard className="w-3.5 h-3.5 text-purple-400" />
+                <span>Tap here to open keyboard</span>
+              </div>
+            )}
+            <div className="font-mono text-xl sm:text-3xl md:text-4xl leading-relaxed tracking-wide text-center flex flex-wrap items-center justify-center gap-y-3">
               {tokens.map((token, tokenIdx) => {
                 if (token.isSpace) {
                   return (
@@ -1026,7 +1153,7 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
         )}
 
         {/* Footer Feedback */}
-        <div className="mt-10 pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="mt-5 sm:mt-10 pt-4 sm:pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3 text-xs">
           {hidePhrase ? (
             <div className="flex items-center gap-2">
               <span className="text-slate-400">Words typed:</span>
@@ -1036,13 +1163,13 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-slate-400">Next Key:</span>
+              <span className="text-slate-400 hidden sm:inline">Next Key:</span>
               {activeChar ? (
                 <span className="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-purple-300 font-mono font-bold flex items-center gap-1.5 shadow-sm text-sm">
                   {isTargetSpace ? (
                     <span>SPACEBAR ␣</span>
                   ) : activeChar === activeChar.toUpperCase() && activeChar.match(/[A-Z]/) ? (
-                    <span>Shift + {activeChar.toLowerCase()}</span>
+                    <span><span className="hidden sm:inline">Shift + </span>{activeChar.toLowerCase()}</span>
                   ) : (
                     <span>{activeChar}</span>
                   )}
@@ -1057,34 +1184,43 @@ export const TypingArena: React.FC<TypingArenaProps> = ({
 
           {/* Error banner */}
           {(hasError || errorWordIndex !== -1) && (
-            <div className="flex items-center gap-1.5 text-rose-400 bg-rose-500/10 px-3.5 py-1.5 rounded-full border border-rose-500/25 animate-pop">
+            <div className="flex items-center gap-1.5 text-rose-400 bg-rose-500/10 px-3.5 py-1.5 rounded-full border border-rose-500/25 animate-pop text-center">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>
                 {hidePhrase
-                  ? `Wrong word! Press Backspace to correct word ${errorWordIndex + 1}.`
-                  : `Wrong key ${lastWrongChar ? `[${lastWrongChar}]` : ''}! Retry the key.`}
+                  ? `Wrong word! Press ← Backspace to fix.`
+                  : `Wrong key ${lastWrongChar ? `[${lastWrongChar}]` : ''}! Retry.`}
               </span>
             </div>
           )}
 
           {!hasError && errorWordIndex === -1 && !phraseJustFinished && (
             <div className="text-slate-400 flex items-center gap-1.5">
-              <Headphones className="w-4 h-4 text-sky-400" />
+              <Headphones className="w-4 h-4 text-sky-400 flex-shrink-0" />
               <span>
                 {voiceSettings.clickToSpeakWord ? (
                   <>
-                    {hidePhrase ? 'Type what you hear' : 'Type on your PC keyboard'} •{' '}
-                    <span className="text-purple-300 font-medium">Touch or click any word to read it aloud</span>
+                    {hidePhrase ? 'Type what you hear' : (
+                      <>
+                        <span className="hidden sm:inline">Type on your PC keyboard</span>
+                        <span className="sm:hidden">Tap phrase area to type</span>
+                      </>
+                    )}{' '}•{' '}
+                    <span className="text-purple-300 font-medium">Tap any word to hear it</span>
                   </>
                 ) : hidePhrase ? (
-                  'Type what you hear • Space after each word • Enter to submit'
+                  'Type what you hear • Space after each word'
                 ) : (
-                  'Type on your PC keyboard • Every key has mechanical sound feedback'
+                  <>
+                    <span className="hidden sm:inline">Type on your keyboard • Every key has audio</span>
+                    <span className="sm:hidden">Tap the phrase area to open keyboard</span>
+                  </>
                 )}
               </span>
             </div>
           )}
         </div>
+
       </div>
     </div>
   )

@@ -56,3 +56,54 @@
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+
+/* ── Mobile / Touch optimizations ───────────────────────────────────────── */
+
+/* Prevent double-tap zoom on interactive elements */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Hidden input for mobile keyboard capture (normal mode) */
+.mobile-keyboard-capture {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+  height: 1px;
+  top: 0;
+  left: 0;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font-size: 16px; /* prevents iOS zoom */
+  caret-color: transparent;
+}
+
+/* "Tap to type" floating button — shown only on touch devices */
+.tap-to-type-btn {
+  display: none;
+}
+@media (pointer: coarse) {
+  .tap-to-type-btn {
+    display: flex;
+  }
+}
+
+/* Safe-area padding for notched phones */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Ensure no horizontal overflow on mobile */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Slightly smaller font on very small screens */
+@media (max-width: 360px) {
+  .font-mono {
+    font-size: 0.875rem !important;
+  }
+}

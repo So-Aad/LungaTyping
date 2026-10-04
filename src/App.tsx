@@ -171,19 +171,18 @@ export function App() {
       />
 
       {/* Main Body */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 sm:py-10 flex flex-col justify-between">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-6 lg:py-10 flex flex-col justify-between">
         {/* Hero Banner / Instructions */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold mb-3">
+        <div className="text-center mb-4 sm:mb-6">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold mb-2 sm:mb-3">
             <Sparkles className="w-3.5 h-3.5 text-pink-400" />
             <span>Interactive Auditory Typing Method</span>
           </div>
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+          <h2 className="text-xl sm:text-4xl font-extrabold text-white tracking-tight">
             Listen carefully, then <span className="text-gradient-candy">type what you hear</span>
           </h2>
-          <p className="text-sm text-slate-400 mt-2 max-w-xl mx-auto">
-            Type what you hear on your physical keyboard. If you make a mistake, typing halts
-            instantly with error audio so you can listen and retry!
+          <p className="text-xs sm:text-sm text-slate-400 mt-1 sm:mt-2 max-w-xl mx-auto">
+            Type what you hear. If you make a mistake, typing halts instantly with error audio so you can listen and retry!
           </p>
         </div>
 
@@ -309,7 +308,7 @@ export function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 py-4 px-4 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-900 py-3 sm:py-4 px-4 text-center text-xs text-slate-500 safe-bottom">
         <p>LinguaType • Real-time Speech Synthesis & Procedural Audio Feedback</p>
       </footer>
 
